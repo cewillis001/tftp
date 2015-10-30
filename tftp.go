@@ -1,9 +1,10 @@
-package packet
+package tftp
 
 import (
 	"net"
 	"errors"
 	"fmt"
+	"time"
 )
 
 type File struct {
@@ -45,32 +46,91 @@ func SendRRQTo(filename string, Conn *net.UDPConn, raddr *net.UDPAddr){
   checkError(err)
 }
 
-func HandleRRQ(filename string, in <-chan []byte, Conn *net.UDPConn, raddr *net.UDPAddr, f []byte) {
+func HandleRRQ(filename string, in <-chan []byte, done chan<- *net.UDPAddr, Conn *net.UDPConn, raddr *net.UDPAddr, f []byte) {
 	index := 0
 	max := min(512, len(f))
 	data := f[index : max]
 	block := []byte{0, 1}
 	SendDATATo(block, data, Conn, raddr)
-
-	for r := range in {
-		//if timeout, resend last data
-		//if ack, send new data
-		ackBlock, err := GetAckBlock(r)
-		checkError(err)
-		if(ackBlock[1] == block[1] && len(data) >= 512){
-			index += 512
-			max = min(index + 512, len(f))
-			data = f[index : max]
-			block[1]++
-			SendDATATo(block, data, Conn, raddr)
-		} else if (len(data) < 512){
-			break
-		} else{
-			//handle erroneous ackknowledgements
+	for {
+		select {
+			case r := <- in:
+				ackBlock, err := GetAckBlock(r)
+				if(err != nil){
+					//badly formed ack packet
+					errCode := []byte{0,0}
+					errMsg  := "badly formed ack packet"
+					SendERRORTo(errCode, errMsg, Conn, raddr)
+					done <- raddr
+					return
+				}
+				if(ackBlock[1] == block[1] && len(data) >= 512){
+					index += 512
+					max = min(index + 512, len(f))
+					data = f[index : max]
+					block[1]++
+					SendDATATo(block, data, Conn, raddr)
+				}else if (ackBlock[1] == block[1] && len(data) < 512){
+					//last block was acknowledged, no more need to be sent
+					done <- raddr
+					return
+				}else{
+					//do nothing, wait for correct ack or timeout
+				}
+			case <- time.After(1 * time.Second) :
+				//resends if acknowledgment not recieved
+				SendDATATo(block, data, Conn, raddr)
+			case <- time.After(15 * time.Second) :
+				fmt.Println("An in-progress RRQ timed out")
+				done <- raddr
+				return //closes out if too much time passes	
 		}
-	}	
-	//hang around for ack block, if none before timeout, resend data
+	}
 }
+/*
+func SendWrite(){
+	index := 0
+  max := min(512, len(f))
+  data := f[index : max]
+  block := []byte{0, 1}
+  SendDATA(block, data, Conn)
+  for {
+    select {
+      case r := <- in:
+        ackBlock, err := GetAckBlock(r)
+        if(err != nil){
+          //badly formed ack packet
+          errCode := []byte{0,0}
+          errMsg  := "badly formed ack packet"
+          SendERROR(errCode, errMsg, Conn)
+          done <- raddr
+          return
+        }
+        if(ackBlock[1] == block[1] && len(data) >= 512){
+          index += 512
+          max = min(index + 512, len(f))
+          data = f[index : max]
+          block[1]++
+          SendDATA(block, data, Conn)
+        }else if (ackBlock[1] == block[1] && len(data) < 512){
+          //last block was acknowledged, no more need to be sent
+          done <- raddr
+          return
+        }else{
+          //do nothing, wait for correct ack or timeout
+        }
+      case <- time.After(1 * time.Second) :
+        //resends if acknowledgment not recieved
+        SendDATA(block, data, Conn)
+      case <- time.After(15 * time.Second) :
+        fmt.Println("An in-progress attempt to write timed out")
+        done <- raddr
+        return //closes out if too much time passes
+    }
+  }
+
+}
+*/
 
 func GetRRQname(p []byte) (string, error){
   if(len(p) < 9){ //opcode + 0 + octet + 0
@@ -110,21 +170,44 @@ func SendWRQTo(filename string, Conn *net.UDPConn, raddr *net.UDPAddr){
   checkError(err)
 }
 
-func HandleWRQ(filename string, in <-chan []byte, Conn *net.UDPConn, raddr *net.UDPAddr, outf chan<- *File){
-
-	//TODO timeout
+func HandleWRQ(filename string, in <-chan []byte,  done chan<- *net.UDPAddr, Conn *net.UDPConn, raddr *net.UDPAddr, outf chan<- *File){
 	SendACKTo([]byte {0, 0}, Conn, raddr) //send initial confirmation
 	temp := []byte{}
-	for r := range in {
-		block, data, err := GetData(r)
-		checkError(err)
-		SendACKTo(block, Conn, raddr)
-		temp = append(temp, data...)
-		if(len(data) < 512){
-			break
+	prev_block := []byte{0,0}
+	for {
+		select {
+			case r := <- in :
+				block, data, err := GetData(r)
+				fmt.Println("DATA from ", raddr, " is ", len(data), " long")
+				if(err != nil){
+					errCode := []byte {0, 0}
+					errMsg  := "badly formed data packet"
+					SendERRORTo(errCode, errMsg, Conn, raddr)
+					done <- raddr
+					return
+				}
+				if(block[1] == prev_block[1]){
+					//sender didn't get last ack
+					SendACKTo(prev_block, Conn, raddr)
+				} else {
+					SendACKTo(block, Conn, raddr)
+					prev_block[1] = block[1]
+					temp = append(temp, data...)
+					if(len(data) < 512){
+						//choosing simpler option for now, could wait for
+						//sender to see if they get my ACK, but also can just quit
+						fmt.Println("last expected DATA from ", raddr, " recieved")
+						outf <- &File{filename, temp, Conn, raddr}
+						done <- raddr
+						return
+					}
+				}
+			case <-time.After(15 * time.Second) : //does this spawn new timer each for loop?
+				fmt.Println("An in-progres WRQ timed out")
+				done <- raddr
+				return
 		}
 	}
-	outf <- &File{filename, temp, Conn, raddr}
 }
 
 func WriteFile(in <-chan *File, m map[string][]byte){
