@@ -203,7 +203,7 @@ func HandleWRQ(filename string, in <-chan []byte,  done chan<- *net.UDPAddr, Con
 					}
 				}
 			case <-time.After(15 * time.Second) : //does this spawn new timer each for loop?
-				fmt.Println("An in-progres WRQ timed out")
+				fmt.Println("An in-progress WRQ timed out")
 				done <- raddr
 				return
 		}
@@ -265,7 +265,7 @@ func GetData(p []byte) ([]byte, []byte, error){
 	if(len(p) <= 4){
 		return nil, nil, errors.New("bad DATA packet")
 	}
-	block := p[2:3]
+	block := p[2:4]
 	data  := p[4:]
 	return block, data, nil
 }
@@ -294,7 +294,7 @@ func GetAckBlock(p []byte) ([]byte, error){
 	if(len(p) < 4){
 		return nil, errors.New("bad ACK packet")
 	}
-	block := p[2:3]
+	block := p[2:4]
 	return block, nil
 }
 
@@ -327,7 +327,7 @@ func GetError(p []byte) ([]byte, []byte, error){
 	if(len(p) < 5){
 		return nil, nil, errors.New("bad ERROR packet")
 	}
-	errCode:= p[2:3]
-	errMsg := p[4:len(p)-1]
+	errCode:= p[2:4]
+	errMsg := p[4:len(p)]
 	return errCode, errMsg, nil
 }
