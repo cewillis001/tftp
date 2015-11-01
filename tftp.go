@@ -46,7 +46,7 @@ func SendRRQTo(filename string, Conn *net.UDPConn, raddr *net.UDPAddr){
   checkError(err)
 }
 
-func HandleRRQ(filename string, in <-chan []byte, done chan<- *net.UDPAddr, Conn *net.UDPConn, raddr *net.UDPAddr, f []byte) {
+func HandleRRQ(filename string, in <-chan []byte, done chan<- *net.UDPAddr, Conn *net.UDPConn, raddr *net.UDPAddr, f []byte, verbose *bool) {
 	index := 0
 	max := min(512, len(f))
 	data := f[index : max]
@@ -126,7 +126,7 @@ func SendWRQTo(filename string, Conn *net.UDPConn, raddr *net.UDPAddr){
   checkError(err)
 }
 
-func HandleWRQ(filename string, in <-chan []byte,  done chan<- *net.UDPAddr, Conn *net.UDPConn, raddr *net.UDPAddr, outf chan<- *File){
+func HandleWRQ(filename string, in <-chan []byte,  done chan<- *net.UDPAddr, Conn *net.UDPConn, raddr *net.UDPAddr, outf chan<- *File, verbose *bool){
 	SendACKTo([]byte {0, 0}, Conn, raddr) //send initial confirmation
 	temp := []byte{}
 	prev_block := []byte{0,0}
@@ -134,7 +134,7 @@ func HandleWRQ(filename string, in <-chan []byte,  done chan<- *net.UDPAddr, Con
 		select {
 			case r := <- in :
 				block, data, err := GetData(r)
-				fmt.Println("DATA from ", raddr, " is ", len(data), " long")
+				if(*verbose) {fmt.Println("  DATA from ", raddr, " is ", len(data), " long")}
 				if(err != nil){
 					errCode := []byte {0, 0}
 					errMsg  := "badly formed data packet"
@@ -152,13 +152,13 @@ func HandleWRQ(filename string, in <-chan []byte,  done chan<- *net.UDPAddr, Con
 					if(len(data) < 512){
 						//choosing simpler option for now, could wait for
 						//sender to see if they get my ACK, but also can just quit
-						fmt.Println("last expected DATA from ", raddr, " recieved")
+						if(*verbose) {fmt.Println("  last expected DATA from ", raddr, " recieved")}
 						outf <- &File{filename, temp, Conn, raddr}
 						done <- raddr
 						return
 					}
 				}
-			case <-time.After(15 * time.Second) : //does this spawn new timer each for loop?
+			case <-time.After(15 * time.Second) : 
 				fmt.Println("An in-progress WRQ timed out")
 				done <- raddr
 				return
