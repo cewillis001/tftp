@@ -87,50 +87,6 @@ func HandleRRQ(filename string, in <-chan []byte, done chan<- *net.UDPAddr, Conn
 		}
 	}
 }
-/*
-func SendWrite(){
-	index := 0
-  max := min(512, len(f))
-  data := f[index : max]
-  block := []byte{0, 1}
-  SendDATA(block, data, Conn)
-  for {
-    select {
-      case r := <- in:
-        ackBlock, err := GetAckBlock(r)
-        if(err != nil){
-          //badly formed ack packet
-          errCode := []byte{0,0}
-          errMsg  := "badly formed ack packet"
-          SendERROR(errCode, errMsg, Conn)
-          done <- raddr
-          return
-        }
-        if(ackBlock[1] == block[1] && len(data) >= 512){
-          index += 512
-          max = min(index + 512, len(f))
-          data = f[index : max]
-          block[1]++
-          SendDATA(block, data, Conn)
-        }else if (ackBlock[1] == block[1] && len(data) < 512){
-          //last block was acknowledged, no more need to be sent
-          done <- raddr
-          return
-        }else{
-          //do nothing, wait for correct ack or timeout
-        }
-      case <- time.After(1 * time.Second) :
-        //resends if acknowledgment not recieved
-        SendDATA(block, data, Conn)
-      case <- time.After(15 * time.Second) :
-        fmt.Println("An in-progress attempt to write timed out")
-        done <- raddr
-        return //closes out if too much time passes
-    }
-  }
-
-}
-*/
 
 func GetRRQname(p []byte) (string, error){
   if(len(p) < 9){ //opcode + 0 + octet + 0
