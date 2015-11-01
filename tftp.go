@@ -28,6 +28,8 @@ func checkError(err error) {
 	}
 }
 
+/* packet transmission and processing functions */
+
 func makeRRQ(filename string) ([]byte, error) {
 	packet, err := makeWRQ(filename)
 	if packet != nil {
